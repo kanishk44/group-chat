@@ -2,6 +2,7 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const authRoutes = require("./routes/authRoutes");
+const chatRoutes = require("./routes/chatRoutes");
 const sequelize = require("./config/db");
 const path = require("path");
 
@@ -13,6 +14,7 @@ app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 app.use("/", authRoutes);
+app.use("/", chatRoutes);
 
 app.get("/", (req, res) => {
   res.redirect("/login");
@@ -24,6 +26,10 @@ app.get("/login", (req, res) => {
 
 app.get("/signup", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "signup.html"));
+});
+
+app.get("/chat", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "chat.html"));
 });
 
 const PORT = process.env.PORT || 3000;

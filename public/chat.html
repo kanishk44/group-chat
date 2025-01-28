@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="stylesheet"
+      href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
+    />
+    <title>Chat</title>
+    <style>
+      #messages {
+        height: 400px;
+        overflow-y: scroll;
+        border: 1px solid #ccc;
+        margin-bottom: 20px;
+        padding: 10px;
+      }
+      .message {
+        padding: 10px;
+        border-radius: 10px;
+        margin-bottom: 10px;
+        max-width: 70%;
+      }
+      .message.sender {
+        background-color: #d1e7dd; /* Light green for sender */
+        margin-left: auto; /* Align to the right */
+      }
+      .message.receiver {
+        background-color: #f8d7da; /* Light red for receiver */
+      }
+      .message:last-child {
+        border-bottom: none;
+      }
+      .user {
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container mt-4">
+      <h2 class="text-center">Chat App</h2>
+      <button id="logoutButton" class="btn btn-danger mb-3">Logout</button>
+      <div class="row">
+        <div class="col-md-4">
+          <h5>Online Users</h5>
+          <div id="userList" class="list-group"></div>
+        </div>
+        <div class="col-md-8">
+          <h5>Messages</h5>
+          <div id="messages" class="mb-3"></div>
+          <div class="input-group">
+            <input
+              type="text"
+              id="messageInput"
+              placeholder="Type a message..."
+              class="form-control"
+            />
+            <div class="input-group-append">
+              <button id="sendButton" class="btn btn-primary">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Function to fetch with authorization
+      async function fetchWithAuth(url, options = {}) {
+        const token = localStorage.getItem("token");
+        //console.log("Token in fetchWithAuth: ", token);
+        options.headers = {
+          ...options.headers,
+          Authorization: `Bearer ${token}`,
+        };
+        return fetch(url, options);
+      }
+
+      // Fetch online users
+      async function fetchOnlineUsers() {
+        const response = await fetchWithAuth(
+          "http://localhost:3000/online-users"
+        );
+        const users = await response.json();
+        const userList = document.getElementById("userList");
+        userList.innerHTML = users
+          .map(
+            (user) =>
+              `<div class="user list-group-item" data-id="${user.id}">${user.name}</div>`
+          )
+          .join("");
+
+        // Add click event to each user
+        document.querySelectorAll(".user").forEach((user) => {
+          user.addEventListener("click", () => {
+            // You can add functionality here if needed in the future
+          });
+        });
+      }
+
+      // Fetch messages
+      async function fetchMessages() {
+        const lastMessageId = localStorage.getItem("lastMessageId"); // Get last message ID from local storage
+        const response = await fetchWithAuth(
+          `http://localhost:3000/messages?lastMessageId=${lastMessageId || 0}`
+        );
+        const messages = await response.json();
+
+        // Retrieve stored messages from local storage
+        const storedMessages =
+          JSON.parse(localStorage.getItem("messages")) || [];
+
+        // Combine new messages with stored messages
+        const allMessages = [...storedMessages, ...messages];
+
+        // Limit to the most recent 10 messages
+        if (allMessages.length > 10) {
+          allMessages.splice(0, allMessages.length - 10); // Remove oldest messages
+        }
+
+        // Update local storage
+        localStorage.setItem("messages", JSON.stringify(allMessages));
+
+        // Update last message ID in local storage
+        if (messages.length > 0) {
+          localStorage.setItem(
+            "lastMessageId",
+            messages[messages.length - 1].id
+          ); // Store the ID of the last message
+        }
+
+        // Display messages
+        displayMessages(allMessages);
+      }
+
+      // Function to display messages
+      function displayMessages(messages) {
+        const messagesDiv = document.getElementById("messages");
+        messagesDiv.innerHTML = messages
+          .map((msg) => {
+            const senderName = msg.sender ? msg.sender.name : "Unknown Sender"; // Handle null
+            const isSender = msg.senderId === window.selectedUserId; // Check if the logged-in user is the sender
+            return `<div class="message ${isSender ? "sender" : "receiver"}">
+                            <strong>${senderName}:</strong> ${msg.content}
+                        </div>`;
+          })
+          .join("");
+      }
+
+      // Send message
+      document
+        .getElementById("sendButton")
+        .addEventListener("click", async () => {
+          const messageInput = document.getElementById("messageInput");
+          const content = messageInput.value;
+          const receiverId = 1; // Set a default receiver ID or implement logic to choose
+
+          await fetchWithAuth("http://localhost:3000/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ receiverId, content }),
+          });
+
+          messageInput.value = ""; // Clear input
+          fetchMessages(); // Refresh messages
+        });
+
+      // Logout functionality
+      document.getElementById("logoutButton").addEventListener("click", () => {
+        localStorage.removeItem("token"); // Remove token from local storage
+        window.location.href = "/login"; // Redirect to login page
+      });
+
+      // On page load
+      window.onload = () => {
+        const storedMessages =
+          JSON.parse(localStorage.getItem("messages")) || [];
+        displayMessages(storedMessages);
+        fetchOnlineUsers();
+        fetchMessages(); // Fetch new messages
+
+        // Set interval to fetch new messages every second
+        setInterval(fetchMessages, 1000); // Fetch new messages every 1 second
+      };
+    </script>
+  </body>
+</html>

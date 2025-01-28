@@ -46,6 +46,8 @@
           if (response.ok) {
             localStorage.setItem("token", data.token);
             alertDiv.innerHTML = `<div class="alert alert-success">Login successful!</div>`;
+            // Redirect to chat page
+            window.location.href = "/chat"; // Change to /chat
           } else {
             alertDiv.innerHTML = `<div class="alert alert-danger">${data.message}</div>`;
           }
