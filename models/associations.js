@@ -17,6 +17,10 @@ function setupAssociations(models) {
     otherKey: "userId",
     as: "members",
   });
+
+  // GroupMember associations
+  GroupMember.belongsTo(User, { foreignKey: "userId" });
+  GroupMember.belongsTo(Group, { foreignKey: "groupId" });
 }
 
 module.exports = setupAssociations;

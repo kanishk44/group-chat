@@ -50,6 +50,9 @@
         margin-bottom: 10px;
       }
     </style>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
   </head>
   <body>
     <div class="container mt-4">
@@ -150,12 +153,109 @@
       </div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Group Management Modal -->
+    <div class="modal fade" id="groupManageModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Manage Group</h5>
+            <button type="button" class="close" data-dismiss="modal">
+              <span>&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <!-- Group Info -->
+            <div class="group-info mb-4">
+              <h6>Group Name: <span id="groupManageName"></span></h6>
+            </div>
+
+            <!-- Member Management -->
+            <div class="member-management">
+              <div class="mb-3">
+                <h6 class="mb-0">Members</h6>
+              </div>
+
+              <!-- Member Search -->
+              <div class="form-group">
+                <input
+                  type="text"
+                  class="form-control"
+                  id="memberSearch"
+                  placeholder="Search members..."
+                />
+              </div>
+
+              <!-- Members List -->
+              <div id="membersList" class="list-group mb-3">
+                <!-- Members will be added here dynamically -->
+              </div>
+
+              <!-- Add Members Button -->
+              <div class="text-center">
+                <button
+                  class="btn btn-primary"
+                  id="addMembersBtn"
+                  style="display: none"
+                >
+                  Add Members
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Members Modal -->
+    <div class="modal fade" id="addMembersModal" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Add Members</h5>
+            <button type="button" class="close" data-dismiss="modal">
+              <span>&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <input
+                type="text"
+                class="form-control"
+                id="userSearch"
+                placeholder="Search users..."
+              />
+            </div>
+            <div id="userSearchResults" class="list-group">
+              <!-- Search results will be added here -->
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-dismiss="modal"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              id="confirmAddMembers"
+            >
+              Add Selected
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script>
       let currentChatType = null; // 'direct' or 'group'
       let currentChatId = null;
       let lastMessageId = null;
+      let isGroupAdmin = false;
+      let selectedUsers = new Set();
+      let currentGroupMembers = new Set();
 
       // Function to get conversation key
       function getConversationKey(userId1, userId2) {
@@ -190,12 +290,22 @@
 
         // Add click event to each group
         document.querySelectorAll(".group").forEach((group) => {
-          group.addEventListener("click", () => {
+          group.addEventListener("click", async () => {
             currentChatType = "group";
             currentChatId = group.getAttribute("data-id");
-            document.getElementById(
-              "currentChat"
-            ).innerText = `Group: ${group.innerText}`;
+
+            // Add manage button if not already present
+            const chatHeader = document.getElementById("currentChat");
+            chatHeader.innerHTML = `
+              <div class="d-flex justify-content-between align-items-center">
+                <span>Group: ${group.innerText}</span>
+                <button class="btn btn-sm btn-info" onclick="openGroupManagement()">
+                  Manage
+                </button>
+              </div>
+            `;
+
+            await checkAdminStatus();
             fetchGroupMessages(currentChatId);
           });
         });
@@ -432,11 +542,7 @@
           const response = await fetchWithAuth(
             `http://localhost:3000/groups/${groupId}/messages`
           );
-          if (!response.ok) {
-            throw new Error("Failed to fetch group messages");
-          }
           const messages = await response.json();
-          console.log("Fetched group messages:", messages); // Debug log
           displayMessages(messages);
         } catch (error) {
           console.error("Error fetching group messages:", error);
@@ -448,12 +554,8 @@
         const messagesDiv = document.getElementById("messages");
         const currentUserId = localStorage.getItem("userId");
 
-        console.log("Displaying messages:", messages); // Debug log
-        console.log("Current user ID:", currentUserId); // Debug log
-
         messagesDiv.innerHTML = messages
           .map((msg) => {
-            console.log("Message sender:", msg.sender); // Debug log
             const senderName = msg.sender ? msg.sender.name : "Unknown";
             const isSender = msg.senderId === parseInt(currentUserId);
             return `
@@ -471,6 +573,190 @@
         localStorage.removeItem("userId");
         localStorage.removeItem("userName");
         window.location.href = "/login";
+      });
+
+      // Check admin status
+      async function checkAdminStatus() {
+        try {
+          const response = await fetchWithAuth(
+            `http://localhost:3000/groups/${currentChatId}/members`
+          );
+          if (!response.ok) {
+            throw new Error("Failed to fetch members");
+          }
+          const members = await response.json();
+
+          const currentUserId = parseInt(localStorage.getItem("userId"));
+          const userMembership = members.find(
+            (member) => member.User.id === currentUserId
+          );
+
+          isGroupAdmin = userMembership?.isAdmin || false;
+
+          // Update UI based on admin status
+          updateAdminUI();
+        } catch (error) {
+          console.error("Error checking admin status:", error);
+        }
+      }
+
+      // Update UI based on admin status
+      function updateAdminUI() {
+        const addMembersBtn = document.getElementById("addMembersBtn");
+        if (addMembersBtn) {
+          addMembersBtn.style.display = isGroupAdmin ? "block" : "none";
+        }
+      }
+
+      // Open group management modal
+      async function openGroupManagement() {
+        const groupName = document
+          .getElementById("currentChat")
+          .querySelector("span")
+          .innerText.replace("Group: ", "");
+        document.getElementById("groupManageName").textContent = groupName;
+
+        await fetchGroupMembers();
+
+        document.getElementById("addMembersBtn").style.display = isGroupAdmin
+          ? "block"
+          : "none";
+
+        $("#groupManageModal").modal("show");
+      }
+
+      // Fetch group members
+      async function fetchGroupMembers() {
+        try {
+          const response = await fetchWithAuth(
+            `http://localhost:3000/groups/${currentChatId}/members`
+          );
+          const members = await response.json();
+
+          // Update current group members set
+          currentGroupMembers = new Set(
+            members.map((member) => member.User.id)
+          );
+
+          displayGroupMembers(members);
+        } catch (error) {
+          console.error("Error fetching members:", error);
+        }
+      }
+
+      // Display group members
+      function displayGroupMembers(members) {
+        const membersList = document.getElementById("membersList");
+        const currentUserId = parseInt(localStorage.getItem("userId"));
+
+        membersList.innerHTML = members
+          .map(
+            (member) => `
+              <div class="list-group-item d-flex justify-content-between align-items-center">
+                <div>
+                  ${member.User.name}
+                  ${
+                    member.isAdmin
+                      ? '<span class="badge badge-primary ml-2">Admin</span>'
+                      : ""
+                  }
+                </div>
+                ${
+                  isGroupAdmin && member.User.id !== currentUserId
+                    ? `
+                      <div class="btn-group">
+                        <button class="btn btn-sm btn-${
+                          member.isAdmin ? "warning" : "success"
+                        }"
+                                onclick="toggleAdmin(${
+                                  member.User.id
+                                }, ${!member.isAdmin})">
+                          ${member.isAdmin ? "Demote" : "Make Admin"}
+                        </button>
+                        <button class="btn btn-sm btn-danger"
+                                onclick="removeMember(${member.User.id})">
+                          Remove
+                        </button>
+                      </div>
+                    `
+                    : ""
+                }
+              </div>
+            `
+          )
+          .join("");
+      }
+
+      // Toggle admin status
+      async function toggleAdmin(userId, makeAdmin) {
+        try {
+          const response = await fetchWithAuth(
+            `http://localhost:3000/groups/${currentChatId}/admins`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userId,
+                action: makeAdmin ? "promote" : "demote",
+              }),
+            }
+          );
+
+          if (response.ok) {
+            await fetchGroupMembers(); // Refresh member list
+          } else {
+            throw new Error("Failed to update admin status");
+          }
+        } catch (error) {
+          console.error("Error updating admin status:", error);
+          alert("Failed to update admin status");
+        }
+      }
+
+      // Remove member
+      async function removeMember(userId) {
+        if (!confirm("Are you sure you want to remove this member?")) return;
+
+        try {
+          const response = await fetchWithAuth(
+            `http://localhost:3000/groups/${currentChatId}/members`,
+            {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ userIds: [userId] }),
+            }
+          );
+
+          if (response.ok) {
+            await fetchGroupMembers(); // Refresh member list
+          } else {
+            throw new Error("Failed to remove member");
+          }
+        } catch (error) {
+          console.error("Error removing member:", error);
+          alert("Failed to remove member");
+        }
+      }
+
+      // Add member search functionality
+      document
+        .getElementById("memberSearch")
+        .addEventListener("input", async (e) => {
+          const searchTerm = e.target.value;
+          try {
+            const response = await fetchWithAuth(
+              `http://localhost:3000/groups/${currentChatId}/members?searchTerm=${searchTerm}`
+            );
+            const members = await response.json();
+            displayGroupMembers(members);
+          } catch (error) {
+            console.error("Error searching members:", error);
+          }
+        });
+
+      // Add Members button click handler
+      document.getElementById("addMembersBtn").addEventListener("click", () => {
+        $("#addMembersModal").modal("show");
       });
 
       // Initialize
@@ -491,6 +777,155 @@
           }
         }, 1000);
       };
+
+      // Initialize modals when document is ready
+      $(document).ready(() => {
+        $("#groupManageModal").on("shown.bs.modal", () => {
+          document.getElementById("memberSearch").focus();
+        });
+
+        $("#addMembersModal").on("shown.bs.modal", () => {
+          document.getElementById("userSearch").focus();
+        });
+
+        // Add Members button click handler
+        document
+          .getElementById("addMembersBtn")
+          .addEventListener("click", () => {
+            $("#addMembersModal").modal("show");
+          });
+      });
+
+      // Make functions available globally
+      window.openGroupManagement = async function () {
+        const groupName = document
+          .getElementById("currentChat")
+          .querySelector("span")
+          .innerText.replace("Group: ", "");
+        document.getElementById("groupManageName").textContent = groupName;
+
+        await fetchGroupMembers();
+
+        document.getElementById("addMembersBtn").style.display = isGroupAdmin
+          ? "block"
+          : "none";
+
+        $("#groupManageModal").modal("show");
+      };
+
+      window.toggleAdmin = toggleAdmin;
+      window.removeMember = removeMember;
+
+      // Add this function to handle user search
+      async function searchUsers(searchTerm) {
+        try {
+          const response = await fetchWithAuth(
+            `http://localhost:3000/users/search?searchTerm=${searchTerm}`
+          );
+          const users = await response.json();
+
+          // Filter out users who are already members
+          const filteredUsers = users.filter(
+            (user) => !currentGroupMembers.has(user.id)
+          );
+
+          displayUserSearchResults(filteredUsers);
+        } catch (error) {
+          console.error("Error searching users:", error);
+        }
+      }
+
+      // Add this function to display search results
+      function displayUserSearchResults(users) {
+        const resultsDiv = document.getElementById("userSearchResults");
+        resultsDiv.innerHTML = users
+          .map(
+            (user) => `
+              <div class="list-group-item">
+                <div class="form-check">
+                  <input
+                    type="checkbox"
+                    class="form-check-input"
+                    id="user-${user.id}"
+                    value="${user.id}"
+                    ${selectedUsers.has(user.id) ? "checked" : ""}
+                    onchange="toggleUserSelection(${user.id})"
+                  />
+                  <label class="form-check-label" for="user-${user.id}">
+                    ${user.name} (${user.email})
+                  </label>
+                </div>
+              </div>
+            `
+          )
+          .join("");
+      }
+
+      // Add this function to handle user selection
+      window.toggleUserSelection = function (userId) {
+        if (selectedUsers.has(userId)) {
+          selectedUsers.delete(userId);
+        } else {
+          selectedUsers.add(userId);
+        }
+      };
+
+      // Add this function to handle adding selected members
+      async function addSelectedMembers() {
+        if (selectedUsers.size === 0) {
+          alert("Please select users to add");
+          return;
+        }
+
+        try {
+          const response = await fetchWithAuth(
+            `http://localhost:3000/groups/${currentChatId}/members`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userIds: Array.from(selectedUsers),
+              }),
+            }
+          );
+
+          if (response.ok) {
+            selectedUsers.clear();
+            await fetchGroupMembers();
+            $("#addMembersModal").modal("hide");
+          } else {
+            throw new Error("Failed to add members");
+          }
+        } catch (error) {
+          console.error("Error adding members:", error);
+          alert("Failed to add members");
+        }
+      }
+
+      // Add these event listeners
+      document.addEventListener("DOMContentLoaded", function () {
+        // User search input handler
+        document.getElementById("userSearch").addEventListener("input", (e) => {
+          const searchTerm = e.target.value.trim();
+          if (searchTerm) {
+            searchUsers(searchTerm);
+          } else {
+            document.getElementById("userSearchResults").innerHTML = "";
+          }
+        });
+
+        // Add members confirmation button
+        document
+          .getElementById("confirmAddMembers")
+          .addEventListener("click", addSelectedMembers);
+
+        // Clear selections when modal is hidden
+        $("#addMembersModal").on("hidden.bs.modal", () => {
+          selectedUsers.clear();
+          document.getElementById("userSearch").value = "";
+          document.getElementById("userSearchResults").innerHTML = "";
+        });
+      });
     </script>
   </body>
 </html>

@@ -1,5 +1,6 @@
 const { Group, User, GroupMember, Message } = require("../models");
 const { Op } = require("sequelize");
+const sequelize = require("../config/db");
 
 // Create a new group
 exports.createGroup = async (req, res) => {
@@ -13,13 +14,21 @@ exports.createGroup = async (req, res) => {
   try {
     const group = await Group.create({ name, adminId });
 
-    // Add admin as a member
-    await GroupMember.create({ groupId: group.id, userId: adminId });
+    // Add admin as a member with isAdmin true
+    await GroupMember.create({
+      groupId: group.id,
+      userId: adminId,
+      isAdmin: true, // Set creator as admin
+    });
 
     // Add other members
     await Promise.all(
       members.map((memberId) =>
-        GroupMember.create({ groupId: group.id, userId: memberId })
+        GroupMember.create({
+          groupId: group.id,
+          userId: memberId,
+          isAdmin: false, // Other members are not admins by default
+        })
       )
     );
 
@@ -91,7 +100,6 @@ exports.sendGroupMessage = async (req, res) => {
       ],
     });
 
-    console.log("Created group message:", messageWithSender); // Debug log
     res.status(201).json(messageWithSender);
   } catch (error) {
     console.error("Error sending group message:", error);
@@ -121,7 +129,6 @@ exports.getGroupMessages = async (req, res) => {
       limit: parseInt(limit),
     });
 
-    console.log("Found group messages:", messages.length); // Debug log
     res.json(messages);
   } catch (error) {
     console.error("Error fetching group messages:", error);
@@ -148,6 +155,144 @@ exports.deleteGroup = async (req, res) => {
     await group.destroy();
     res.json({ message: "Group deleted successfully" });
   } catch (error) {
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+// Add members to group
+exports.addMembers = async (req, res) => {
+  const groupId = req.params.id;
+  const { userIds } = req.body;
+  const adminId = req.user.id;
+
+  if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+    return res.status(400).json({ error: "Invalid user list" });
+  }
+
+  try {
+    // Start transaction for bulk operations
+    await sequelize.transaction(async (t) => {
+      // Check if users already exist in group
+      const existingMembers = await GroupMember.findAll({
+        where: {
+          groupId,
+          userId: userIds,
+        },
+        transaction: t,
+      });
+
+      const existingUserIds = existingMembers.map((m) => m.userId);
+      const newUserIds = userIds.filter((id) => !existingUserIds.includes(id));
+
+      // Add new members
+      await Promise.all(
+        newUserIds.map((userId) =>
+          GroupMember.create(
+            {
+              groupId,
+              userId,
+              addedBy: adminId,
+            },
+            { transaction: t }
+          )
+        )
+      );
+    });
+
+    res.json({ message: "Members added successfully" });
+  } catch (error) {
+    console.error("Error adding members:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+// Remove members from group
+exports.removeMembers = async (req, res) => {
+  const groupId = req.params.id;
+  const { userIds } = req.body;
+
+  if (!userIds || !Array.isArray(userIds)) {
+    return res.status(400).json({ error: "Invalid user list" });
+  }
+
+  try {
+    await GroupMember.destroy({
+      where: {
+        groupId,
+        userId: userIds,
+        isAdmin: false, // Prevent removing admins through this endpoint
+      },
+    });
+
+    res.json({ message: "Members removed successfully" });
+  } catch (error) {
+    console.error("Error removing members:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+// Update admin status
+exports.updateAdminStatus = async (req, res) => {
+  const groupId = req.params.id;
+  const { userId, action } = req.body;
+
+  if (!userId || !["promote", "demote"].includes(action)) {
+    return res.status(400).json({ error: "Invalid request" });
+  }
+
+  try {
+    const member = await GroupMember.findOne({
+      where: { groupId, userId },
+    });
+
+    if (!member) {
+      return res.status(404).json({ error: "Member not found" });
+    }
+
+    await member.update({ isAdmin: action === "promote" });
+    res.json({ message: `User ${action}d to admin successfully` });
+  } catch (error) {
+    console.error("Error updating admin status:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+// Search group members
+exports.searchMembers = async (req, res) => {
+  const groupId = req.params.id;
+  const { searchTerm } = req.query;
+
+  try {
+    const members = await GroupMember.findAll({
+      where: { groupId },
+      include: [
+        {
+          model: User,
+          attributes: ["id", "name", "email", "phone"],
+          where: searchTerm
+            ? {
+                [Op.or]: [
+                  { name: { [Op.like]: `%${searchTerm}%` } },
+                  { email: searchTerm },
+                  { phone: searchTerm },
+                ],
+              }
+            : undefined,
+        },
+      ],
+      attributes: ["isAdmin", "joinDate"],
+    });
+
+    // Transform the response to match the expected format
+    const formattedMembers = members.map((member) => ({
+      isAdmin: member.isAdmin,
+      joinDate: member.joinDate,
+      User: member.User,
+    }));
+
+    res.json(formattedMembers);
+  } catch (error) {
+    console.error("Error searching members:", error);
     res.status(500).json({ error: "Server error" });
   }
 };
