@@ -1,6 +1,7 @@
 const { Group, User, GroupMember, Message } = require("../models");
 const { Op } = require("sequelize");
 const sequelize = require("../config/db");
+const { upload, getSignedUrl } = require("../config/s3");
 
 // Create a new group
 exports.createGroup = async (req, res) => {
@@ -85,6 +86,7 @@ exports.sendGroupMessage = async (req, res) => {
       groupId,
       content,
       messageType: "group",
+      contentType: "text",
     });
 
     // Fetch the complete message with sender details
@@ -297,5 +299,59 @@ exports.searchMembers = async (req, res) => {
   } catch (error) {
     console.error("Error searching members:", error);
     res.status(500).json({ error: "Server error" });
+  }
+};
+
+// Add this new route handler for file uploads
+exports.uploadGroupFile = async (req, res) => {
+  const groupId = req.params.id;
+  const senderId = req.user.id;
+
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const membership = await GroupMember.findOne({
+      where: {
+        groupId,
+        userId: senderId,
+      },
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: "Not a member of this group" });
+    }
+
+    const message = await Message.create({
+      senderId,
+      groupId,
+      content: req.file.originalname,
+      contentType: "file",
+      fileUrl: getSignedUrl(req.file.key),
+      fileName: req.file.originalname,
+      messageType: "group",
+    });
+
+    // Fetch the complete message with sender details
+    const messageWithSender = await Message.findOne({
+      where: { id: message.id },
+      include: [
+        {
+          model: User,
+          as: "sender",
+          attributes: ["id", "name"],
+        },
+      ],
+    });
+
+    // Emit the message to all group members
+    const io = req.app.get("io");
+    io.to(`group_${groupId}`).emit("groupMessage", messageWithSender);
+
+    res.status(201).json(messageWithSender);
+  } catch (error) {
+    console.error("Error uploading file:", error);
+    res.status(500).json({ error: error.message || "Server error" });
   }
 };

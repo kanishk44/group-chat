@@ -15,7 +15,24 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIO(server);
 
-app.use(cors());
+app.use(
+  cors({
+    origin: "http://localhost:3000",
+    credentials: true,
+  })
+);
+
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "http://localhost:3000");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Credentials", "true");
+  next();
+});
+
 app.use(bodyParser.json());
 
 app.use(express.static(path.join(__dirname, "public")));
@@ -101,7 +118,7 @@ app.get("/chat", (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 sequelize
-  .sync()
+  .sync({ alter: true })
   .then(() => {
     server.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);

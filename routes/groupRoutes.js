@@ -9,12 +9,14 @@ const {
   removeMembers,
   updateAdminStatus,
   searchMembers,
+  uploadGroupFile,
 } = require("../controllers/groupController");
 const authenticateToken = require("../middleware/auth");
 const verifyGroupMembership = require("../middleware/verifyGroupMembership");
 const verifyGroupAdmin = require("../middleware/verifyGroupAdmin");
 const User = require("../models/user");
 const { Op } = require("sequelize");
+const { upload } = require("../config/s3");
 
 const router = express.Router();
 
@@ -95,5 +97,21 @@ router.get("/users", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+router.post(
+  "/groups/:id/files",
+  authenticateToken,
+  verifyGroupMembership,
+  (req, res, next) => {
+    upload.single("file")(req, res, (err) => {
+      if (err) {
+        console.error("File upload error:", err);
+        return res.status(400).json({ error: err.message });
+      }
+      next();
+    });
+  },
+  uploadGroupFile
+);
 
 module.exports = router;

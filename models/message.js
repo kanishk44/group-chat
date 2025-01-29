@@ -10,6 +10,18 @@ const Message = sequelize.define("Message", {
     type: DataTypes.ENUM("direct", "group"),
     allowNull: false,
   },
+  contentType: {
+    type: DataTypes.ENUM("text", "file"),
+    defaultValue: "text",
+  },
+  fileUrl: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+  fileName: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
   senderId: {
     type: DataTypes.INTEGER,
     allowNull: false,
