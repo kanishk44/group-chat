@@ -81,4 +81,19 @@ router.get("/users/search", authenticateToken, async (req, res) => {
   }
 });
 
+router.get("/users", authenticateToken, async (req, res) => {
+  try {
+    const users = await User.findAll({
+      attributes: ["id", "name"],
+      where: {
+        id: { [Op.ne]: req.user.id }, // Exclude current user
+      },
+    });
+    res.json(users);
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 module.exports = router;

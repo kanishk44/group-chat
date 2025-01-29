@@ -69,7 +69,6 @@ exports.sendGroupMessage = async (req, res) => {
   const senderId = req.user.id;
 
   try {
-    // First verify that the user is a member of the group
     const membership = await GroupMember.findOne({
       where: {
         groupId,
@@ -99,6 +98,10 @@ exports.sendGroupMessage = async (req, res) => {
         },
       ],
     });
+
+    // Emit the message to all group members
+    const io = req.app.get("io");
+    io.to(`group_${groupId}`).emit("groupMessage", messageWithSender);
 
     res.status(201).json(messageWithSender);
   } catch (error) {
