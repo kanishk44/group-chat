@@ -1,5 +1,5 @@
 function setupAssociations(models) {
-  const { User, Group, GroupMember, Message } = models;
+  const { User, Group, GroupMember, Message, ArchivedMessage } = models;
 
   // User associations
   User.belongsToMany(Group, {
@@ -25,6 +25,10 @@ function setupAssociations(models) {
   // Message associations
   Message.belongsTo(User, { as: "sender", foreignKey: "senderId" });
   Message.belongsTo(User, { as: "receiver", foreignKey: "receiverId" });
+
+  // ArchivedMessage associations
+  ArchivedMessage.belongsTo(User, { as: "sender", foreignKey: "senderId" });
+  ArchivedMessage.belongsTo(User, { as: "receiver", foreignKey: "receiverId" });
 }
 
 module.exports = setupAssociations;

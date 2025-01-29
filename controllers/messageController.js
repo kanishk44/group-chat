@@ -1,4 +1,4 @@
-const { Message, User } = require("../models");
+const { Message, User, ArchivedMessage } = require("../models");
 const { Op } = require("sequelize");
 const { getSignedUrl } = require("../config/s3");
 
@@ -6,27 +6,58 @@ const { getSignedUrl } = require("../config/s3");
 exports.getDirectMessages = async (req, res) => {
   const senderId = req.user.id;
   const receiverId = req.params.userId;
+  const { includeArchived } = req.query;
 
   try {
-    const messages = await Message.findAll({
-      where: {
-        messageType: "direct",
-        [Op.or]: [
-          { senderId, receiverId },
-          { senderId: receiverId, receiverId: senderId },
-        ],
-      },
-      include: [
-        {
-          model: User,
-          as: "sender",
-          attributes: ["id", "name"],
+    const messages = await Promise.all([
+      // Get current messages
+      Message.findAll({
+        where: {
+          messageType: "direct",
+          [Op.or]: [
+            { senderId, receiverId },
+            { senderId: receiverId, receiverId: senderId },
+          ],
         },
-      ],
-      order: [["createdAt", "ASC"]],
+        include: [
+          {
+            model: User,
+            as: "sender",
+            attributes: ["id", "name"],
+          },
+        ],
+        order: [["createdAt", "ASC"]],
+      }),
+      // Get archived messages if requested
+      includeArchived === "true"
+        ? ArchivedMessage.findAll({
+            where: {
+              messageType: "direct",
+              [Op.or]: [
+                { senderId, receiverId },
+                { senderId: receiverId, receiverId: senderId },
+              ],
+            },
+            include: [
+              {
+                model: User,
+                as: "sender",
+                attributes: ["id", "name"],
+              },
+            ],
+            order: [["originalCreatedAt", "ASC"]],
+          })
+        : Promise.resolve([]),
+    ]);
+
+    // Combine and sort messages
+    const allMessages = [...messages[0], ...messages[1]].sort((a, b) => {
+      const dateA = a.originalCreatedAt || a.createdAt;
+      const dateB = b.originalCreatedAt || b.createdAt;
+      return dateA - dateB;
     });
 
-    res.json(messages);
+    res.json(allMessages);
   } catch (error) {
     console.error("Error fetching direct messages:", error);
     res.status(500).json({ error: "Server error" });

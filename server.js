@@ -10,6 +10,7 @@ const jwt = require("jsonwebtoken");
 const path = require("path");
 const GroupMember = require("./models/groupMember");
 const messageRoutes = require("./routes/messageRoutes");
+const messageArchiverJob = require("./jobs/messageArchiver");
 
 const app = express();
 const server = http.createServer(app);
@@ -113,6 +114,15 @@ app.get("/signup", (req, res) => {
 
 app.get("/chat", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "chat.html"));
+});
+
+// Add this after your other configurations
+messageArchiverJob.start();
+
+// When you want to stop the job (e.g., during graceful shutdown)
+process.on("SIGTERM", () => {
+  messageArchiverJob.stop();
+  // ... other cleanup code
 });
 
 const PORT = process.env.PORT || 3000;
