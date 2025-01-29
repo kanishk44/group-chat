@@ -118,7 +118,7 @@ app.get("/chat", (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 sequelize
-  .sync({ alter: true })
+  .sync()
   .then(() => {
     server.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
