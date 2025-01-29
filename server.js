@@ -3,18 +3,20 @@ const bodyParser = require("body-parser");
 const cors = require("cors");
 const authRoutes = require("./routes/authRoutes");
 const chatRoutes = require("./routes/chatRoutes");
+const groupRoutes = require("./routes/groupRoutes");
 const sequelize = require("./config/db");
+const models = require("./models");
 const path = require("path");
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// Serve static files from the public directory
 app.use(express.static(path.join(__dirname, "public")));
 
 app.use("/", authRoutes);
 app.use("/", chatRoutes);
+app.use("/", groupRoutes);
 
 app.get("/", (req, res) => {
   res.redirect("/login");

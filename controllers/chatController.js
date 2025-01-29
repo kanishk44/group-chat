@@ -5,12 +5,36 @@ const { Op } = require("sequelize");
 // Send a message
 exports.sendMessage = async (req, res) => {
   const { receiverId, content } = req.body;
-  const senderId = req.user.id; // Get sender ID from the token
+  const senderId = req.user.id;
 
   try {
-    const message = await Message.create({ senderId, receiverId, content });
-    res.status(201).json(message);
+    const message = await Message.create({
+      senderId,
+      receiverId,
+      content,
+      messageType: "direct",
+    });
+
+    // Fetch the complete message with sender details
+    const messageWithSender = await Message.findOne({
+      where: { id: message.id },
+      include: [
+        {
+          model: User,
+          as: "sender",
+          attributes: ["id", "name"],
+        },
+        {
+          model: User,
+          as: "receiver",
+          attributes: ["id", "name"],
+        },
+      ],
+    });
+
+    res.status(201).json(messageWithSender);
   } catch (error) {
+    console.error("Error sending message:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -20,22 +44,35 @@ exports.getMessages = async (req, res) => {
   if (!req.user) {
     return res.status(401).json({ error: "User not authenticated" });
   }
-  const userId = req.user.id; // Access user ID after confirming req.user exists
-  const lastMessageId = req.query.lastMessageId; // Get last message ID from query
+  const userId = req.user.id;
+  const { receiverId, lastMessageId } = req.query;
 
   try {
     const messages = await Message.findAll({
       where: {
-        ...(lastMessageId && { id: { [Op.gt]: lastMessageId } }), // Fetch messages newer than lastMessageId
+        messageType: "direct",
+        ...(lastMessageId && { id: { [Op.gt]: lastMessageId } }), // Only get messages newer than lastMessageId
+        [Op.or]: [
+          // Messages between the current user and the selected receiver
+          {
+            senderId: userId,
+            receiverId: receiverId,
+          },
+          {
+            senderId: receiverId,
+            receiverId: userId,
+          },
+        ],
       },
       include: [
-        { model: User, as: "sender" }, // Include sender details
-        { model: User, as: "receiver" }, // Include receiver details
+        { model: User, as: "sender" },
+        { model: User, as: "receiver" },
       ],
+      order: [["createdAt", "ASC"]], // Order messages by creation time
     });
     res.json(messages);
   } catch (error) {
-    console.error("Error fetching messages:", error); // Log the error
+    console.error("Error fetching messages:", error);
     res.status(500).json({ message: "Server error" });
   }
 };

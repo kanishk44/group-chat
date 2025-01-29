@@ -45,6 +45,8 @@
           const alertDiv = document.getElementById("alert");
           if (response.ok) {
             localStorage.setItem("token", data.token);
+            localStorage.setItem("userId", data.userId);
+            localStorage.setItem("userName", data.userName);
             alertDiv.innerHTML = `<div class="alert alert-success">Login successful!</div>`;
             // Redirect to chat page
             window.location.href = "/chat"; // Change to /chat

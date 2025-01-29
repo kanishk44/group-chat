@@ -32,22 +32,62 @@
       .message:last-child {
         border-bottom: none;
       }
-      .user {
+      .user,
+      .group {
         cursor: pointer;
+        padding: 10px;
+        margin-bottom: 5px;
+      }
+      .user:hover,
+      .group:hover {
+        background-color: #f8f9fa;
+      }
+      .active {
+        background-color: #e9ecef;
+      }
+      .chat-type {
+        font-weight: bold;
+        margin-bottom: 10px;
       }
     </style>
   </head>
   <body>
     <div class="container mt-4">
-      <h2 class="text-center">Chat App</h2>
-      <button id="logoutButton" class="btn btn-danger mb-3">Logout</button>
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="text-center mb-0">Chat App</h2>
+        <div>
+          <span class="mr-3" id="currentUser"></span>
+          <button id="logoutButton" class="btn btn-danger">Logout</button>
+        </div>
+      </div>
       <div class="row">
         <div class="col-md-4">
-          <h5>Online Users</h5>
-          <div id="userList" class="list-group"></div>
+          <!-- Groups Section -->
+          <div class="mb-4">
+            <div class="d-flex justify-content-between align-items-center">
+              <h5>Groups</h5>
+              <button
+                class="btn btn-sm btn-primary"
+                data-toggle="modal"
+                data-target="#createGroupModal"
+              >
+                New Group
+              </button>
+            </div>
+            <div id="groupList" class="list-group"></div>
+          </div>
+
+          <!-- Users Section -->
+          <div>
+            <h5>Online Users</h5>
+            <div id="userList" class="list-group"></div>
+          </div>
         </div>
+
         <div class="col-md-8">
-          <h5>Messages</h5>
+          <div id="chatHeader" class="mb-3">
+            <h5 id="currentChat">Select a chat to start messaging</h5>
+          </div>
           <div id="messages" class="mb-3"></div>
           <div class="input-group">
             <input
@@ -64,16 +104,101 @@
       </div>
     </div>
 
+    <!-- Create Group Modal -->
+    <div class="modal fade" id="createGroupModal" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Create New Group</h5>
+            <button type="button" class="close" data-dismiss="modal">
+              <span>&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label>Group Name</label>
+              <input type="text" class="form-control" id="groupName" required />
+            </div>
+            <div class="form-group">
+              <label>Select Members</label>
+              <div
+                id="memberSelection"
+                class="border p-2"
+                style="max-height: 200px; overflow-y: auto"
+              >
+                <!-- User checkboxes will be added here -->
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-dismiss="modal"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              id="createGroupButton"
+            >
+              Create Group
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+      let currentChatType = null; // 'direct' or 'group'
+      let currentChatId = null;
+      let lastMessageId = null;
+
+      // Function to get conversation key
+      function getConversationKey(userId1, userId2) {
+        // Sort IDs to ensure consistent key regardless of sender/receiver
+        const sortedIds = [userId1, userId2].sort();
+        return `messages_${sortedIds[0]}_${sortedIds[1]}`;
+      }
+
       // Function to fetch with authorization
       async function fetchWithAuth(url, options = {}) {
         const token = localStorage.getItem("token");
-        //console.log("Token in fetchWithAuth: ", token);
         options.headers = {
           ...options.headers,
           Authorization: `Bearer ${token}`,
         };
         return fetch(url, options);
+      }
+
+      // Fetch groups
+      async function fetchGroups() {
+        const response = await fetchWithAuth("http://localhost:3000/groups");
+        const groups = await response.json();
+        const groupList = document.getElementById("groupList");
+        groupList.innerHTML = groups
+          .map(
+            (group) =>
+              `<div class="group list-group-item" data-id="${group.id}" data-type="group">
+                ${group.name}
+               </div>`
+          )
+          .join("");
+
+        // Add click event to each group
+        document.querySelectorAll(".group").forEach((group) => {
+          group.addEventListener("click", () => {
+            currentChatType = "group";
+            currentChatId = group.getAttribute("data-id");
+            document.getElementById(
+              "currentChat"
+            ).innerText = `Group: ${group.innerText}`;
+            fetchGroupMessages(currentChatId);
+          });
+        });
       }
 
       // Fetch online users
@@ -86,103 +211,285 @@
         userList.innerHTML = users
           .map(
             (user) =>
-              `<div class="user list-group-item" data-id="${user.id}">${user.name}</div>`
+              `<div class="user list-group-item" data-id="${user.id}" data-type="direct">
+                ${user.name}
+               </div>`
           )
           .join("");
 
         // Add click event to each user
         document.querySelectorAll(".user").forEach((user) => {
           user.addEventListener("click", () => {
-            // You can add functionality here if needed in the future
+            currentChatType = "direct";
+            currentChatId = user.getAttribute("data-id");
+            document.getElementById(
+              "currentChat"
+            ).innerText = `Chat with: ${user.innerText}`;
+
+            // Clear lastMessageId when switching conversations
+            lastMessageId = null;
+
+            // Load existing messages for this conversation
+            const conversationKey = getConversationKey(
+              localStorage.getItem("userId"),
+              currentChatId
+            );
+            const existingMessages =
+              JSON.parse(localStorage.getItem(conversationKey)) || [];
+            displayMessages(existingMessages);
+
+            // Then fetch any new messages
+            fetchMessages();
           });
         });
-      }
 
-      // Fetch messages
-      async function fetchMessages() {
-        const lastMessageId = localStorage.getItem("lastMessageId"); // Get last message ID from local storage
-        const response = await fetchWithAuth(
-          `http://localhost:3000/messages?lastMessageId=${lastMessageId || 0}`
-        );
-        const messages = await response.json();
-
-        // Retrieve stored messages from local storage
-        const storedMessages =
-          JSON.parse(localStorage.getItem("messages")) || [];
-
-        // Combine new messages with stored messages
-        const allMessages = [...storedMessages, ...messages];
-
-        // Limit to the most recent 10 messages
-        if (allMessages.length > 10) {
-          allMessages.splice(0, allMessages.length - 10); // Remove oldest messages
-        }
-
-        // Update local storage
-        localStorage.setItem("messages", JSON.stringify(allMessages));
-
-        // Update last message ID in local storage
-        if (messages.length > 0) {
-          localStorage.setItem(
-            "lastMessageId",
-            messages[messages.length - 1].id
-          ); // Store the ID of the last message
-        }
-
-        // Display messages
-        displayMessages(allMessages);
-      }
-
-      // Function to display messages
-      function displayMessages(messages) {
-        const messagesDiv = document.getElementById("messages");
-        messagesDiv.innerHTML = messages
-          .map((msg) => {
-            const senderName = msg.sender ? msg.sender.name : "Unknown Sender"; // Handle null
-            const isSender = msg.senderId === window.selectedUserId; // Check if the logged-in user is the sender
-            return `<div class="message ${isSender ? "sender" : "receiver"}">
-                            <strong>${senderName}:</strong> ${msg.content}
-                        </div>`;
-          })
+        // Update member selection in create group modal
+        const memberSelection = document.getElementById("memberSelection");
+        memberSelection.innerHTML = users
+          .map(
+            (user) =>
+              `<div class="form-check">
+                <input class="form-check-input" type="checkbox" value="${user.id}" id="user${user.id}">
+                <label class="form-check-label" for="user${user.id}">
+                  ${user.name}
+                </label>
+              </div>`
+          )
           .join("");
       }
+
+      // Create group
+      document
+        .getElementById("createGroupButton")
+        .addEventListener("click", async () => {
+          const name = document.getElementById("groupName").value;
+          const selectedMembers = Array.from(
+            document.querySelectorAll("#memberSelection input:checked")
+          ).map((checkbox) => checkbox.value);
+
+          if (selectedMembers.length < 1) {
+            alert("Please select at least one member");
+            return;
+          }
+
+          try {
+            const response = await fetchWithAuth(
+              "http://localhost:3000/groups",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ name, members: selectedMembers }),
+              }
+            );
+
+            if (response.ok) {
+              $("#createGroupModal").modal("hide");
+              document.getElementById("groupName").value = "";
+              fetchGroups();
+            } else {
+              const data = await response.json();
+              alert(data.error || "Failed to create group");
+            }
+          } catch (error) {
+            console.error("Error creating group:", error);
+            alert("Failed to create group");
+          }
+        });
 
       // Send message
       document
         .getElementById("sendButton")
         .addEventListener("click", async () => {
+          if (!currentChatType || !currentChatId) {
+            alert("Please select a chat first");
+            return;
+          }
+
           const messageInput = document.getElementById("messageInput");
-          const content = messageInput.value;
-          const receiverId = 1; // Set a default receiver ID or implement logic to choose
+          const content = messageInput.value.trim();
 
-          await fetchWithAuth("http://localhost:3000/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ receiverId, content }),
-          });
+          if (!content) {
+            return; // Don't send empty messages
+          }
 
-          messageInput.value = ""; // Clear input
-          fetchMessages(); // Refresh messages
+          try {
+            if (currentChatType === "direct") {
+              const response = await fetchWithAuth(
+                "http://localhost:3000/messages",
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({ receiverId: currentChatId, content }),
+                }
+              );
+
+              if (response.ok) {
+                const newMessage = await response.json();
+                const conversationKey = getConversationKey(
+                  localStorage.getItem("userId"),
+                  currentChatId
+                );
+                const existingMessages =
+                  JSON.parse(localStorage.getItem(conversationKey)) || [];
+                existingMessages.push(newMessage);
+                localStorage.setItem(
+                  conversationKey,
+                  JSON.stringify(existingMessages.slice(-10))
+                );
+                displayMessages(existingMessages);
+              }
+            } else {
+              const response = await fetchWithAuth(
+                `http://localhost:3000/groups/${currentChatId}/messages`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({ content }),
+                }
+              );
+
+              if (!response.ok) {
+                throw new Error("Failed to send group message");
+              }
+
+              // Fetch latest messages immediately
+              await fetchGroupMessages(currentChatId);
+            }
+
+            messageInput.value = ""; // Clear input only if message was sent successfully
+          } catch (error) {
+            console.error("Error sending message:", error);
+            alert("Failed to send message");
+          }
         });
+
+      // Fetch messages
+      async function fetchMessages() {
+        const receiverId = currentChatId;
+        if (!receiverId) return;
+
+        try {
+          const response = await fetchWithAuth(
+            `http://localhost:3000/messages?receiverId=${receiverId}${
+              lastMessageId ? `&lastMessageId=${lastMessageId}` : ""
+            }`
+          );
+          const newMessages = await response.json();
+
+          if (newMessages.length > 0) {
+            // Update lastMessageId to the newest message's ID
+            lastMessageId = Math.max(...newMessages.map((msg) => msg.id));
+
+            const currentUserId = localStorage.getItem("userId");
+            const conversationKey = getConversationKey(
+              currentUserId,
+              receiverId
+            );
+
+            // Get existing messages for this conversation
+            const existingMessages =
+              JSON.parse(localStorage.getItem(conversationKey)) || [];
+
+            // Combine messages, removing duplicates
+            const allMessages = [...existingMessages, ...newMessages].reduce(
+              (acc, current) => {
+                const x = acc.find((item) => item.id === current.id);
+                if (!x) {
+                  return acc.concat([current]);
+                } else {
+                  return acc;
+                }
+              },
+              []
+            );
+
+            // Keep only the last 10 messages
+            const recentMessages = allMessages.slice(-10);
+
+            // Store messages for this specific conversation
+            localStorage.setItem(
+              conversationKey,
+              JSON.stringify(recentMessages)
+            );
+
+            // Display messages
+            displayMessages(recentMessages);
+          }
+        } catch (error) {
+          console.error("Error fetching messages:", error);
+        }
+      }
+
+      // Fetch group messages
+      async function fetchGroupMessages(groupId) {
+        try {
+          const response = await fetchWithAuth(
+            `http://localhost:3000/groups/${groupId}/messages`
+          );
+          if (!response.ok) {
+            throw new Error("Failed to fetch group messages");
+          }
+          const messages = await response.json();
+          console.log("Fetched group messages:", messages); // Debug log
+          displayMessages(messages);
+        } catch (error) {
+          console.error("Error fetching group messages:", error);
+        }
+      }
+
+      // Display messages
+      function displayMessages(messages) {
+        const messagesDiv = document.getElementById("messages");
+        const currentUserId = localStorage.getItem("userId");
+
+        console.log("Displaying messages:", messages); // Debug log
+        console.log("Current user ID:", currentUserId); // Debug log
+
+        messagesDiv.innerHTML = messages
+          .map((msg) => {
+            console.log("Message sender:", msg.sender); // Debug log
+            const senderName = msg.sender ? msg.sender.name : "Unknown";
+            const isSender = msg.senderId === parseInt(currentUserId);
+            return `
+              <div class="message ${isSender ? "sender" : "receiver"}">
+                <strong>${senderName}:</strong> ${msg.content}
+              </div>`;
+          })
+          .join("");
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      }
 
       // Logout functionality
       document.getElementById("logoutButton").addEventListener("click", () => {
-        localStorage.removeItem("token"); // Remove token from local storage
-        window.location.href = "/login"; // Redirect to login page
+        localStorage.removeItem("token");
+        localStorage.removeItem("userId");
+        localStorage.removeItem("userName");
+        window.location.href = "/login";
       });
 
-      // On page load
+      // Initialize
       window.onload = () => {
-        const storedMessages =
-          JSON.parse(localStorage.getItem("messages")) || [];
-        displayMessages(storedMessages);
-        fetchOnlineUsers();
-        fetchMessages(); // Fetch new messages
+        // Display current user
+        const userName = localStorage.getItem("userName");
+        document.getElementById(
+          "currentUser"
+        ).innerText = `Logged in as: ${userName}`;
 
-        // Set interval to fetch new messages every second
-        setInterval(fetchMessages, 1000); // Fetch new messages every 1 second
+        fetchGroups();
+        fetchOnlineUsers();
+        setInterval(() => {
+          if (currentChatType === "direct") {
+            fetchMessages();
+          } else if (currentChatType === "group" && currentChatId) {
+            fetchGroupMessages(currentChatId);
+          }
+        }, 1000);
       };
     </script>
   </body>
